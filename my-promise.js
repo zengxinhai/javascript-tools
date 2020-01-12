@@ -18,7 +18,8 @@ function queueMicrotask(cb) {
   setTimeout(cb, 0)
 }
 
-function NewPromise(fn) {
+// In order to avoid conflict with native Promise, add Z as suffix
+function PromiseZ(fn) {
   let promise = this
   promise._status = PENDING
   promise._fullFillCallbacks = []
@@ -57,7 +58,7 @@ function NewPromise(fn) {
   fn(resolve, reject)
 }
 
-NewPromise.prototype.then = function(onFullFilled, onRejected) {
+PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   if (this._status === PENDING) {
     this._fullFillCallbacks.push(onFullFilled)
     this._rejectedCallbacks.push(onRejected)
@@ -74,14 +75,14 @@ NewPromise.prototype.then = function(onFullFilled, onRejected) {
   }
 }
 
-NewPromise.resolve = function(value) {
-  return new NewPromise(resolve => {
+PromiseZ.resolve = function(value) {
+  return new PromiseZ(resolve => {
     resolve(value)
   })
 }
 
-NewPromise.reject = function(value) {
-  return new NewPromise((resolve, reject) => {
+PromiseZ.reject = function(value) {
+  return new PromiseZ((resolve, reject) => {
     reject(value)
   })
 }
