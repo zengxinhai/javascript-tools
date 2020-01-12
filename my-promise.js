@@ -14,6 +14,8 @@ function isThenable(value) {
   return isObject(value) && (typeof value.then === 'function')
 }
 
+// This function should depend on the environment
+// If in the browser should call browser's microTask api
 function queueMicrotask(cb) {
   setTimeout(cb, 0)
 }
