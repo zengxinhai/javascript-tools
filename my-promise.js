@@ -47,7 +47,11 @@ function PromiseZ(fn) {
   
   function resolve(value) {
     if (isThenable(value)) {
-      value.then(resolve, reject)
+      try {
+        value.then(resolve, reject)
+      } catch(err) {
+        reject(err)
+      }
     } else {
       setValueAndStatus(value, FULLFILLED)
     }
@@ -57,7 +61,11 @@ function PromiseZ(fn) {
     setValueAndStatus(value, REJECTED)
   }
 
-  fn(resolve, reject)
+  try {
+    fn(resolve, reject)
+  } catch(err) {
+    reject(err)
+  }
 }
 
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
@@ -66,6 +74,7 @@ PromiseZ.prototype.then = function(onFullFilled, onRejected) {
     this._rejectedCallbacks.push(onRejected)
   }
   if (this._status === FULLFILLED) {
+    if (typeof onFullFilled !== 'function') return PromiseZ.resolve()
     return new PromiseZ((resolve, reject) => {
       queueMicrotask(() => {
         resolve(onFullFilled(this._value))
@@ -73,6 +82,7 @@ PromiseZ.prototype.then = function(onFullFilled, onRejected) {
     })
   }
   if (this._status === REJECTED) {
+    if (typeof onRejected !== 'function') return PromiseZ.reject(this._value)
     return new PromiseZ((resolve, reject) => {
       queueMicrotask(() => {
         resolve(onRejected(this._value))
@@ -92,7 +102,3 @@ PromiseZ.reject = function(value) {
     reject(value)
   })
 }
-
-const p = PromiseZ.resolve(10)
-p.then(x => { console.log(x); return Promise.resolve(200) })
-  .then(x => console.log(x))
