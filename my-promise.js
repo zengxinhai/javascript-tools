@@ -68,8 +68,6 @@ function PromiseZ(fn) {
   }
 }
 
-// TODO
-// Handle the situation correctly when the status is PENDING
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   return new PromiseZ((resolve, reject) => {
     const resolveThenableFunction = (func) => {
@@ -85,9 +83,15 @@ PromiseZ.prototype.then = function(onFullFilled, onRejected) {
       }
     }
     const futureFullFilled = () => {
+      if (typeof onFullFilled !== 'function') {
+        resolve(this._value)
+      }
       resolveThenableFunction(onFullFilled)
     }
     const futureRejected = () => {
+      if (typeof onRejected !== 'function') {
+        reject(this._value)
+      }
       resolveThenableFunction(onRejected)
     }
     if (this._status === PENDING) {
@@ -103,6 +107,18 @@ PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   })
 }
 
+PromiseZ.prototype.catch = function(onCatch) {
+  return this.then(null, onCatch)
+}
+
+PromiseZ.prototype.finally = function(onAlways) {
+  return this.then(onAlways, onAlways)
+}
+
+/**
+ * ================ Quick methods =================
+ */
+
 PromiseZ.resolve = function(value) {
   return new PromiseZ(resolve => {
     resolve(value)
@@ -115,8 +131,16 @@ PromiseZ.reject = function(value) {
   })
 }
 
-const p = new PromiseZ(resolve => {
-  setTimeout(() => {
-    resolve(100)
-  }, 1000)
-})
+PromiseZ.deferred = function() {
+  const deferred = {}
+  const promise = new PromiseZ((resolve, reject) => {
+    deferred.resolve = resolve
+    deferred.reject = reject
+  })
+  deferred.promise = promise
+  return deferred
+}
+
+module.exports = PromiseZ
+
+const p = PromiseZ.resolve(4).then(x => console.log(x))
