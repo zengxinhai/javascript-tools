@@ -144,5 +144,3 @@ PromiseZ.deferred = function() {
 }
 
 module.exports = PromiseZ
-
-const p = PromiseZ.resolve(4).then(x => console.log(x))
