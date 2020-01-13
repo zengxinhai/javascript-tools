@@ -68,6 +68,8 @@ function PromiseZ(fn) {
   }
 }
 
+// TODO
+// Handle the situation correctly when the status is PENDING
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   if (this._status === PENDING) {
     this._fullFillCallbacks.push(onFullFilled)
