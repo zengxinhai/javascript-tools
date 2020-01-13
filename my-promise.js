@@ -71,16 +71,18 @@ function PromiseZ(fn) {
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   return new PromiseZ((resolve, reject) => {
     const resolveThenableFunction = (func) => {
-      const val = func(this._value)
-      if (isThenable(val)) {
-        try {
-          val.then(resolve, reject)
-        } catch(err) {
-          reject(err)
+      queueMicrotask(() => {
+        const val = func(this._value)
+        if (isThenable(val)) {
+          try {
+            val.then(resolve, reject)
+          } catch(err) {
+            reject(err)
+          }
+        } else {
+          resolve(val)
         }
-      } else {
-        resolve(val)
-      }
+      })
     }
     const futureFullFilled = () => {
       if (typeof onFullFilled !== 'function') {
