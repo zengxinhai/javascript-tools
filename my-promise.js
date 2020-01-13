@@ -71,26 +71,36 @@ function PromiseZ(fn) {
 // TODO
 // Handle the situation correctly when the status is PENDING
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
-  if (this._status === PENDING) {
-    this._fullFillCallbacks.push(onFullFilled)
-    this._rejectedCallbacks.push(onRejected)
-  }
-  if (this._status === FULLFILLED) {
-    if (typeof onFullFilled !== 'function') return PromiseZ.resolve()
-    return new PromiseZ((resolve, reject) => {
-      queueMicrotask(() => {
-        resolve(onFullFilled(this._value))
-      })
-    })
-  }
-  if (this._status === REJECTED) {
-    if (typeof onRejected !== 'function') return PromiseZ.reject(this._value)
-    return new PromiseZ((resolve, reject) => {
-      queueMicrotask(() => {
-        resolve(onRejected(this._value))
-      })
-    })
-  }
+  return new PromiseZ((resolve, reject) => {
+    const resolveThenableFunction = (func) => {
+      const val = func(this._value)
+      if (isThenable(val)) {
+        try {
+          val.then(resolve, reject)
+        } catch(err) {
+          reject(err)
+        }
+      } else {
+        resolve(val)
+      }
+    }
+    const futureFullFilled = () => {
+      resolveThenableFunction(onFullFilled)
+    }
+    const futureRejected = () => {
+      resolveThenableFunction(onRejected)
+    }
+    if (this._status === PENDING) {
+      this._fullFillCallbacks.push(futureFullFilled)
+      this._rejectedCallbacks.push(futureRejected)
+    }
+    if (this._status === FULLFILLED) {
+      futureFullFilled()
+    }
+    if (this._status === REJECTED) {
+      futureRejected()
+    }
+  })
 }
 
 PromiseZ.resolve = function(value) {
@@ -104,3 +114,9 @@ PromiseZ.reject = function(value) {
     reject(value)
   })
 }
+
+const p = new PromiseZ(resolve => {
+  setTimeout(() => {
+    resolve(100)
+  }, 1000)
+})
