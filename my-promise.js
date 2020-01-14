@@ -27,36 +27,56 @@ function queueMicrotask(cb) {
 }
 
 // In order to avoid conflict with native Promise, add Z as suffix
-function PromiseZ(fn) {
+function PromiseZ(executor) {
   let promise = this
   promise._status = PENDING
   promise._fullFillCallbacks = []
   promise._rejectedCallbacks = []
 
   function setStateAndRunPendingCallbacks(value, status) {
-    if (promise._status === PENDING) {
-      promise._status = status
-      promise._value = value
-      const callBacksQueueToRun =
-        status === FULLFILLED ?
-        promise._fullFillCallbacks :
-        promise._rejectedCallbacks
-      callBacksQueueToRun.forEach(cb => cb())
-      promise._rejectedCallbacks = undefined
-      promise._fullFillCallbacks = undefined
-    }
+    promise._status = status
+    promise._value = value
+    const callBacksQueueToRun =
+      status === FULLFILLED ?
+      promise._fullFillCallbacks :
+      promise._rejectedCallbacks
+    callBacksQueueToRun.forEach(cb => {
+      queueMicrotask(() => {
+        cb(promise._value)
+      })
+    })
+    promise._rejectedCallbacks = undefined
+    promise._fullFillCallbacks = undefined
   }
 
   function resolve(value) {
-    setStateAndRunPendingCallbacks(value, FULLFILLED)
+    if (promise._status !== PENDING) return
+    if (isThenable(value)) {
+      value.then(resolve, reject)
+    } else {
+      setStateAndRunPendingCallbacks(value, FULLFILLED)
+    }
   }
 
   function reject(value) {
+    if (promise._status !== PENDING) return
     setStateAndRunPendingCallbacks(value, REJECTED)
   }
 
   try {
-    fn(resolve, reject)
+    executor(resolve, reject)
+  } catch(err) {
+    reject(err)
+  }
+}
+
+function resolveValue(value, resolve, reject) {
+  try {
+    if (isThenable(value)) {
+      value.then(resolve, reject)
+    } else {
+      resolve(value)
+    }
   } catch(err) {
     reject(err)
   }
@@ -65,37 +85,34 @@ function PromiseZ(fn) {
 // Need to reimplement then function
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   onFullFilled = typeof onFullFilled === 'function' ? onFullFilled : value => value
-  onRejected = typeof onRejected === 'function' ? onRejected : value => value
+  onRejected = typeof onRejected === 'function' ? onRejected : value => { throw value }
+  const promise = this
   return new PromiseZ((resolve, reject) => {
-    const resolveThenableFunction = (func) => {
-      queueMicrotask(() => {
-        const val = func(this._value)
-        if (isThenable(val)) {
-          try {
-            val.then(resolve, reject)
-          } catch(err) {
-            reject(err)
-          }
-        } else {
-          resolve(val)
+    const futureHandler = (func) => {
+      return () => {
+        try {
+          const val = func(promise._value)
+          resolveValue(val, resolve, reject)
+        } catch(err) {
+          reject(err)
         }
-      })
+      }
     }
-    const futureFullFilled = () => {
-      resolveThenableFunction(onFullFilled)
-    }
-    const futureRejected = () => {
-      resolveThenableFunction(onRejected)
-    }
+    const futureFullFilled = futureHandler(onFullFilled)
+    const futureRejected = futureHandler(onRejected)
     if (this._status === PENDING) {
       this._fullFillCallbacks.push(futureFullFilled)
       this._rejectedCallbacks.push(futureRejected)
     }
     if (this._status === FULLFILLED) {
-      futureFullFilled()
+      queueMicrotask(() => {
+        futureFullFilled()
+      })
     }
     if (this._status === REJECTED) {
-      futureRejected()
+      queueMicrotask(() => {
+        futureRejected()
+      })
     }
   })
 }
@@ -135,3 +152,14 @@ PromiseZ.deferred = function() {
 }
 
 module.exports = PromiseZ
+
+const p = new PromiseZ((resolve, reject) => {
+  resolve(Promise.resolve(5))
+  setTimeout(() => {
+    resolve(Promise.resolve(6))
+  }, 1000)
+})
+
+setTimeout(() => {
+  p.then(x => console.log(x))
+}, 2000)
