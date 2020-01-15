@@ -71,7 +71,10 @@ function PromiseZ(executor) {
   }
 }
 
-function resolveValue(value, resolve, reject) {
+function resolveValue(promise, value, resolve, reject) {
+  if (promise === value) {
+    return reject(new TypeError('cycle chainned promise error!'))
+  }
   try {
     if (isThenable(value)) {
       value.then(resolve, reject)
@@ -87,13 +90,14 @@ function resolveValue(value, resolve, reject) {
 PromiseZ.prototype.then = function(onFullFilled, onRejected) {
   onFullFilled = typeof onFullFilled === 'function' ? onFullFilled : value => value
   onRejected = typeof onRejected === 'function' ? onRejected : value => { throw value }
-  const promise = this
-  return new PromiseZ((resolve, reject) => {
+  let promise = this
+  let returnedPromise
+  return returnedPromise = new PromiseZ((resolve, reject) => {
     const futureHandler = (func) => {
       return () => {
         try {
           const val = func(promise._value)
-          resolveValue(val, resolve, reject)
+          resolveValue(returnedPromise, val, resolve, reject)
         } catch(err) {
           reject(err)
         }
