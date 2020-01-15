@@ -34,23 +34,25 @@ function PromiseZ(executor) {
   promise._rejectedCallbacks = []
 
   function setStateAndRunPendingCallbacks(value, status) {
-    promise._status = status
-    promise._value = value
-    const callBacksQueueToRun =
-      status === FULLFILLED ?
-      promise._fullFillCallbacks :
-      promise._rejectedCallbacks
-    callBacksQueueToRun.forEach(cb => {
-      queueMicrotask(() => {
-        cb(promise._value)
+    queueMicrotask(() => {
+      if (promise._status !== PENDING) return
+      promise._status = status
+      promise._value = value
+      const callBacksQueueToRun =
+        status === FULLFILLED ?
+        promise._fullFillCallbacks :
+        promise._rejectedCallbacks
+      callBacksQueueToRun.forEach(cb => {
+        queueMicrotask(() => {
+          cb(promise._value)
+        })
       })
+      promise._rejectedCallbacks = undefined
+      promise._fullFillCallbacks = undefined
     })
-    promise._rejectedCallbacks = undefined
-    promise._fullFillCallbacks = undefined
   }
 
   function resolve(value) {
-    if (promise._status !== PENDING) return
     if (isThenable(value)) {
       value.then(resolve, reject)
     } else {
@@ -59,7 +61,6 @@ function PromiseZ(executor) {
   }
 
   function reject(value) {
-    if (promise._status !== PENDING) return
     setStateAndRunPendingCallbacks(value, REJECTED)
   }
 
@@ -152,14 +153,3 @@ PromiseZ.deferred = function() {
 }
 
 module.exports = PromiseZ
-
-const p = new PromiseZ((resolve, reject) => {
-  resolve(Promise.resolve(5))
-  setTimeout(() => {
-    resolve(Promise.resolve(6))
-  }, 1000)
-})
-
-setTimeout(() => {
-  p.then(x => console.log(x))
-}, 2000)
