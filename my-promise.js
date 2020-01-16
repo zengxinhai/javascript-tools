@@ -1,159 +1,196 @@
-/**
- * This is my own version of promise
- */
+const PENDING = "pending";
+const FULFILLED = "fulfilled";
+const REJECTED = "rejected";
 
-const PENDING = 'pending'
-const FULLFILLED = 'fullFilled'
-const REJECTED = 'rejected'
-
-function isObject(value) {
-  return (typeof value === 'object') 
-    && value !== null
-}
-
-function isFunction(value) {
-  return typeof value === 'function'
-}
-
-function isThenable(value) {
-  return (isObject(value) || isFunction(value))
-    && (typeof value.then === 'function')
-}
-
-// This function should depend on the environment
-// If in the browser should call browser's microTask api
 function queueMicrotask(cb) {
-  setTimeout(cb, 0)
+  setTimeout(cb, 0);
 }
 
-// In order to avoid conflict with native Promise, add Z as suffix
 function PromiseZ(executor) {
-  let promise = this
-  promise._status = PENDING
-  promise._fullFillCallbacks = []
-  promise._rejectedCallbacks = []
+  let that = this;
+  that.status = PENDING;
+  that.value = undefined;
+  that.onFulfilledCallbacks = [];
+  that.onRejectedCallbacks = [];
 
-  function setStateAndRunPendingCallbacks(value, status) {
+  function finalize(status, value) {
     queueMicrotask(() => {
-      if (promise._status !== PENDING) return
-      promise._status = status
-      promise._value = value
-      const callBacksQueueToRun =
-        status === FULLFILLED ?
-        promise._fullFillCallbacks :
-        promise._rejectedCallbacks
-      callBacksQueueToRun.forEach(cb => {
-        queueMicrotask(() => {
-          cb(promise._value)
-        })
-      })
-      promise._rejectedCallbacks = undefined
-      promise._fullFillCallbacks = undefined
-    })
+      if (that.status === PENDING) {
+        that.status = status;
+        that.value = value;
+        const callBacksToRun =
+          status === FULFILLED
+            ? that.onFulfilledCallbacks
+            : that.onRejectedCallbacks;
+        callBacksToRun.forEach(cb => cb(that.value));
+      }
+    });
   }
 
   function resolve(value) {
-    if (isThenable(value)) {
-      value.then(resolve, reject)
-    } else {
-      setStateAndRunPendingCallbacks(value, FULLFILLED)
-    }
+    finalize(FULFILLED, value);
   }
 
   function reject(value) {
-    setStateAndRunPendingCallbacks(value, REJECTED)
+    finalize(REJECTED, value);
   }
 
   try {
-    executor(resolve, reject)
-  } catch(err) {
-    reject(err)
+    executor(resolve, reject);
+  } catch (e) {
+    reject(e);
   }
 }
 
-function resolveValue(promise, value, resolve, reject) {
-  if (promise === value) {
-    return reject(new TypeError('cycle chainned promise error!'))
+function resolvePromise(promise2, x, resolve, reject) {
+  if (promise2 === x) {
+    return reject(new TypeError("Promise cannot self resolve"));
   }
-  try {
-    if (isThenable(value)) {
-      value.then(resolve, reject)
-    } else {
-      resolve(value)
-    }
-  } catch(err) {
-    reject(err)
-  }
-}
 
-// Need to reimplement then function
-PromiseZ.prototype.then = function(onFullFilled, onRejected) {
-  onFullFilled = typeof onFullFilled === 'function' ? onFullFilled : value => value
-  onRejected = typeof onRejected === 'function' ? onRejected : value => { throw value }
-  let promise = this
-  let returnedPromise
-  return returnedPromise = new PromiseZ((resolve, reject) => {
-    const futureHandler = (func) => {
-      return () => {
-        try {
-          const val = func(promise._value)
-          resolveValue(returnedPromise, val, resolve, reject)
-        } catch(err) {
-          reject(err)
-        }
+  let called = false;
+  if (x != null && (typeof x === "object" || typeof x === "function")) {
+    try {
+      let then = x.then;
+      if (typeof then === "function") {
+        then.call(x, y => {
+            if (called) return;
+            called = true;
+            resolvePromise(promise2, y, resolve, reject);
+          }, r => {
+            if (called) return;
+            called = true;
+            reject(r);
+          }
+        );
+      } else {
+        resolve(x);
       }
+    } catch (e) {
+      if (called) return;
+      called = true;
+      reject(e);
     }
-    const futureFullFilled = futureHandler(onFullFilled)
-    const futureRejected = futureHandler(onRejected)
-    if (this._status === PENDING) {
-      this._fullFillCallbacks.push(futureFullFilled)
-      this._rejectedCallbacks.push(futureRejected)
-    }
-    if (this._status === FULLFILLED) {
+  } else {
+    resolve(x);
+  }
+}
+
+PromiseZ.prototype.then = function(onFulfilled, onRejected) {
+  const that = this;
+  let newPromise;
+  onFulfilled =
+    typeof onFulfilled === "function" ? onFulfilled : value => value;
+  onRejected =
+    typeof onRejected === "function"
+      ? onRejected
+      : reason => {
+          throw reason;
+        };
+
+  if (that.status === FULFILLED) {
+    return (newPromise = new PromiseZ((resolve, reject) => {
       queueMicrotask(() => {
-        futureFullFilled()
-      })
-    }
-    if (this._status === REJECTED) {
+        try {
+          let x = onFulfilled(that.value);
+          resolvePromise(newPromise, x, resolve, reject);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }));
+  }
+
+  if (that.status === REJECTED) {
+    return (newPromise = new PromiseZ((resolve, reject) => {
       queueMicrotask(() => {
-        futureRejected()
-      })
+        try {
+          let x = onRejected(that.value);
+          resolvePromise(newPromise, x, resolve, reject);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }));
+  }
+
+  if (that.status === PENDING) {
+    return (newPromise = new PromiseZ((resolve, reject) => {
+      that.onFulfilledCallbacks.push(value => {
+        try {
+          let x = onFulfilled(value);
+          resolvePromise(newPromise, x, resolve, reject);
+        } catch (e) {
+          reject(e);
+        }
+      });
+      that.onRejectedCallbacks.push(value => {
+        try {
+          let x = onRejected(value);
+          resolvePromise(newPromise, x, resolve, reject);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }));
+  }
+};
+
+PromiseZ.all = function(promises) {
+  return new Promise((resolve, reject) => {
+    let done = gen(promises.length, resolve);
+    promises.forEach((promise, index) => {
+      promise.then(value => {
+        done(index, value);
+      }, reject);
+    });
+  });
+};
+
+function gen(length, resolve) {
+  let count = 0;
+  let values = [];
+  return function(i, value) {
+    values[i] = value;
+    if (++count === length) {
+      console.log(values);
+      resolve(values);
     }
-  })
+  };
 }
 
-PromiseZ.prototype.catch = function(onCatch) {
-  return this.then(null, onCatch)
-}
+PromiseZ.race = function(promises) {
+  return new Promise((resolve, reject) => {
+    promises.forEach((promise, index) => {
+      promise.then(resolve, reject);
+    });
+  });
+};
 
-PromiseZ.prototype.finally = function(onAlways) {
-  return this.then(onAlways, onAlways)
-}
-
-/**
- * ================ Quick methods =================
- */
+PromiseZ.prototype.catch = function(onRejected) {
+  return this.then(null, onRejected);
+};
 
 PromiseZ.resolve = function(value) {
   return new PromiseZ(resolve => {
-    resolve(value)
-  })
-}
+    resolve(value);
+  });
+};
 
 PromiseZ.reject = function(value) {
   return new PromiseZ((resolve, reject) => {
-    reject(value)
-  })
-}
+    reject(value);
+  });
+};
 
 PromiseZ.deferred = function() {
-  const deferred = {}
-  const promise = new PromiseZ((resolve, reject) => {
-    deferred.resolve = resolve
-    deferred.reject = reject
-  })
-  deferred.promise = promise
-  return deferred
-}
+  let defer = {};
+  defer.promise = new PromiseZ((resolve, reject) => {
+    defer.resolve = resolve;
+    defer.reject = reject;
+  });
+  return defer;
+};
 
-module.exports = PromiseZ
+try {
+  module.exports = PromiseZ;
+} catch (e) {}
