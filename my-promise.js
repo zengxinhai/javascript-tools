@@ -76,63 +76,35 @@ function resolvePromise(promise2, x, resolve, reject) {
 }
 
 PromiseZ.prototype.then = function(onFulfilled, onRejected) {
-  const that = this;
-  let newPromise;
   onFulfilled =
-    typeof onFulfilled === "function" ? onFulfilled : value => value;
+    typeof onFulfilled === "function" ? onFulfilled : value => value
   onRejected =
-    typeof onRejected === "function"
-      ? onRejected
-      : reason => {
-          throw reason;
-        };
-
-  if (that.status === FULFILLED) {
-    return (newPromise = new PromiseZ((resolve, reject) => {
+    typeof onRejected === "function" ? onRejected : value => { throw value }
+  const promise = this
+  const returnedPromise = new PromiseZ((resolve, reject) => {
+    const futureHandler = handler => {
+      return () => {
+        try {
+          const val = handler(promise.value)
+          resolvePromise(returnedPromise, val, resolve, reject)
+        } catch (err) {
+          reject(err)
+        }
+      };
+    };
+    if (promise.status === PENDING) {
+      promise.onFulfilledCallbacks.push(futureHandler(onFulfilled))
+      promise.onRejectedCallbacks.push(futureHandler(onRejected))
+    } else {
+      const handlerToRun = futureHandler(
+        promise.status === FULFILLED ? onFulfilled : onRejected
+      );
       queueMicrotask(() => {
-        try {
-          let x = onFulfilled(that.value);
-          resolvePromise(newPromise, x, resolve, reject);
-        } catch (e) {
-          reject(e);
-        }
+        futureHandler(handlerToRun)()
       });
-    }));
-  }
-
-  if (that.status === REJECTED) {
-    return (newPromise = new PromiseZ((resolve, reject) => {
-      queueMicrotask(() => {
-        try {
-          let x = onRejected(that.value);
-          resolvePromise(newPromise, x, resolve, reject);
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }));
-  }
-
-  if (that.status === PENDING) {
-    return (newPromise = new PromiseZ((resolve, reject) => {
-      that.onFulfilledCallbacks.push(value => {
-        try {
-          let x = onFulfilled(value);
-          resolvePromise(newPromise, x, resolve, reject);
-        } catch (e) {
-          reject(e);
-        }
-      });
-      that.onRejectedCallbacks.push(value => {
-        try {
-          let x = onRejected(value);
-          resolvePromise(newPromise, x, resolve, reject);
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }));
-  }
+    }
+  });
+  return returnedPromise
 };
 
 PromiseZ.all = function(promises) {
