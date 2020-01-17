@@ -109,26 +109,33 @@ PromiseZ.prototype.then = function(onFulfilled, onRejected) {
 
 PromiseZ.all = function(promises) {
   return new Promise((resolve, reject) => {
-    let done = gen(promises.length, resolve);
-    promises.forEach((promise, index) => {
-      promise.then(value => {
-        done(index, value);
-      }, reject);
-    });
-  });
-};
-
-function gen(length, resolve) {
-  let count = 0;
-  let values = [];
-  return function(i, value) {
-    values[i] = value;
-    if (++count === length) {
-      console.log(values);
-      resolve(values);
+    const promiseNum = promises.length
+    const resolvedResult = []
+    let resolvedNum = 0
+    function resolveItem(idx) {
+      return (value) => {
+        resolvedResult[idx] = value
+        resolvedNum++
+        if (resolvedNum === promiseNum) {
+          resolve(resolvedResult)
+        }
+      }
     }
-  };
+
+    promises.forEach((promise, idx) => {
+      promise.then(resolveItem(idx), reject)
+    })
+  })
 }
+
+const fakeThen = {
+  then(resolve, reject) {
+    resolve(5)
+    reject(10)
+  }
+}
+PromiseZ.all([ Promise.resolve(10), Promise.resolve(12), fakeThen ]).then(console.log, console.log)
+
 
 PromiseZ.race = function(promises) {
   return new Promise((resolve, reject) => {
