@@ -1,44 +1,53 @@
-const PENDING = "pending";
-const FULFILLED = "fulfilled";
-const REJECTED = "rejected";
+/**
+ * Part A: Implement A promise state machine
+ */
 
-function queueMicrotask(cb) {
-  setTimeout(cb, 0);
+// 3 states of promise
+const PENDING = 'pending'
+const FULFILLED = 'fulfilled'
+const REJECTED = 'rejected'
+
+// Define the async machanism
+function queueMicroTask(task) {
+  setTimeout(task, 0)
 }
 
+// Promise constructor
 function PromiseZ(executor) {
-  let that = this;
-  that.status = PENDING;
-  that.value = undefined;
-  that.onFulfilledCallbacks = [];
-  that.onRejectedCallbacks = [];
+  // Initial state of promise
+  const promise = this
+  promise.status = PENDING
+  promise.value = undefined
+  promise.fulfilledCbs = []
+  promise.rejectedCbs = []
 
-  function finalize(status, value) {
-    queueMicrotask(() => {
-      if (that.status === PENDING) {
-        that.status = status;
-        that.value = value;
-        const callBacksToRun =
-          status === FULFILLED
-            ? that.onFulfilledCallbacks
-            : that.onRejectedCallbacks;
-        callBacksToRun.forEach(cb => cb(that.value));
-      }
-    });
+  // Once finalized, promise will keep the value and status forever
+  function finalizeState(value, status) {
+    // Status has changed, it means already finalized, so do nothing
+    if (promise.status !== PENDING) return
+    // Make sure all callbacks are run in async mode
+    queueMicroTask(() => {
+      // set final value and status for promise
+      promise.value = value
+      promise.status = status
+      // run calls that are pending before promise resolved
+      const cbsToRun = status === FULFILLED ? promise.fulfilledCbs : promise.rejectedCbs
+      cbsToRun.forEach(cb => cb(value))
+    })
   }
 
   function resolve(value) {
-    finalize(FULFILLED, value);
+    finalizeState(value, FULFILLED)
   }
 
   function reject(value) {
-    finalize(REJECTED, value);
+    finalizeState(value, REJECTED)
   }
 
   try {
-    executor(resolve, reject);
-  } catch (e) {
-    reject(e);
+    executor(resolve, reject)
+  } catch(err) {
+    reject(err)
   }
 }
 
@@ -93,13 +102,13 @@ PromiseZ.prototype.then = function(onFulfilled, onRejected) {
       };
     };
     if (promise.status === PENDING) {
-      promise.onFulfilledCallbacks.push(futureHandler(onFulfilled))
-      promise.onRejectedCallbacks.push(futureHandler(onRejected))
+      promise.fulfilledCbs.push(futureHandler(onFulfilled))
+      promise.rejectedCbs.push(futureHandler(onRejected))
     } else {
       const handlerToRun = futureHandler(
         promise.status === FULFILLED ? onFulfilled : onRejected
       );
-      queueMicrotask(() => {
+      queueMicroTask(() => {
         futureHandler(handlerToRun)()
       });
     }
@@ -134,8 +143,6 @@ const fakeThen = {
     reject(10)
   }
 }
-PromiseZ.all([ Promise.resolve(10), Promise.resolve(12), fakeThen ]).then(console.log, console.log)
-
 
 PromiseZ.race = function(promises) {
   return new Promise((resolve, reject) => {
