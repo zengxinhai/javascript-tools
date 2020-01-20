@@ -1,3 +1,5 @@
+(function() {
+
 /**
  * Part A: Implement A promise state machine
  */
@@ -7,9 +9,39 @@ const PENDING = 'pending'
 const FULFILLED = 'fulfilled'
 const REJECTED = 'rejected'
 
-// Define the async machanism
-function queueMicroTask(task) {
-  setTimeout(task, 0)
+// Define the async mechanism
+const runLater = (function() {
+  // For node
+  if (typeof process !== 'undefined' && typeof process.version === 'string') {
+    return typeof setImmediate === 'function' ?
+      function(fn) { setImmediate(fn) } :
+      function(fn) { process.nextTick(fn) }
+  }
+
+  // Use MutationObserver if available for async task
+  if (typeof MutationObserver !== 'undefined' && MutationObserver) {
+    var div = document.createElement('div'), queuedFn = void 0
+    var observer = new MutationObserver(function() {
+      var fn = queuedFn
+      queuedFn = void 0
+      fn()
+    })
+    observer.observe(div, { attributes: true })
+    return function(fn) {
+      if (queuedFn !== void 0) {
+        throw new Error('Only one function can be queued at a time')
+      }
+      queuedFn = fn
+      div.classList.toggle('x')
+    }
+  }
+
+  // Fallback to setTimeout
+  return function(fn) { setTimeout(fn, 0) }
+})()
+
+const queueMicroTask = function (task) {
+  runLater(task)
 }
 
 // Promise constructor
@@ -181,3 +213,5 @@ PromiseZ.deferred = function() {
 try {
   module.exports = PromiseZ;
 } catch (e) {}
+
+})()
