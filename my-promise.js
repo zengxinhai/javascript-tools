@@ -1,13 +1,12 @@
 (function() {
 
-/**
- * Part A: Implement A promise state machine
- */
-
-// 3 states of promise
-const PENDING = 'pending'
-const FULFILLED = 'fulfilled'
-const REJECTED = 'rejected'
+// Find global variable and exit if Promise is defined on it
+var Global = (function() {
+  try { return self.self } catch (x) {}
+  try { return global.global } catch (x) {}
+  return null
+})()
+if (!Global || typeof Global.PromiseZ === 'function') return
 
 // Define the async mechanism
 const runLater = (function() {
@@ -43,6 +42,17 @@ const runLater = (function() {
 const queueMicroTask = function (task) {
   runLater(task)
 }
+
+
+/**
+ * Part A: Implement A promise state machine
+ */
+
+// 3 states of promise
+const PENDING = 'pending'
+const FULFILLED = 'fulfilled'
+const REJECTED = 'rejected'
+
 
 // Promise constructor
 function PromiseZ(executor) {
