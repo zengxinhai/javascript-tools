@@ -23,16 +23,19 @@ function PromiseZ(executor) {
 
   // Once finalized, promise will keep the value and status forever
   function finalizeState(value, status) {
-    // Status has changed, it means already finalized, so do nothing
-    if (promise.status !== PENDING) return
     // Make sure all callbacks are run in async mode
     queueMicroTask(() => {
+      // Status has changed, it means already finalized, so do nothing
+      if (promise.status !== PENDING) return
       // set final value and status for promise
       promise.value = value
       promise.status = status
       // run calls that are pending before promise resolved
       const cbsToRun = status === FULFILLED ? promise.fulfilledCbs : promise.rejectedCbs
       cbsToRun.forEach(cb => cb(value))
+      // clear pending callbacks
+      promise.fulfilledCbs = undefined
+      promise.rejectedCbs = undefined
     })
   }
 
@@ -108,9 +111,7 @@ PromiseZ.prototype.then = function(onFulfilled, onRejected) {
       const handlerToRun = futureHandler(
         promise.status === FULFILLED ? onFulfilled : onRejected
       );
-      queueMicroTask(() => {
-        futureHandler(handlerToRun)()
-      });
+      queueMicroTask(futureHandler(handlerToRun))
     }
   });
   return returnedPromise
