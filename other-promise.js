@@ -1,174 +1,221 @@
-const PENDING = "pending";
-const FULFILLED = "fulfilled";
-const REJECTED = "rejected";
+(function() {
 
-function queueMicrotask(cb) {
-  setTimeout(cb, 0)
+// Find global variable and exit if Promise is defined on it
+var Global = (function() {
+  try { return self.self } catch (x) {}
+  try { return global.global } catch (x) {}
+  return null
+})()
+
+if (!Global || typeof Global.PromiseZ === 'function') return
+
+// Define the async mechanism
+const runLater = (function() {
+  // For node
+  if (typeof process !== 'undefined' && typeof process.version === 'string') {
+    return typeof setImmediate === 'function' ?
+      function(fn) { setImmediate(fn) } :
+      function(fn) { process.nextTick(fn) }
+  }
+
+  // Use MutationObserver if available for async task
+  if (typeof MutationObserver !== 'undefined' && MutationObserver) {
+    var div = document.createElement('div'), queuedFn = void 0
+    var observer = new MutationObserver(function() {
+      var fn = queuedFn
+      queuedFn = void 0
+      fn()
+    })
+    observer.observe(div, { attributes: true })
+    return function(fn) {
+      if (queuedFn !== void 0) {
+        throw new Error('Only one function can be queued at a time')
+      }
+      queuedFn = fn
+      div.classList.toggle('x')
+    }
+  }
+
+  // Fallback to setTimeout
+  return function(fn) { setTimeout(fn, 0) }
+})()
+
+const queueMicroTask = function (task) {
+  runLater(task)
 }
 
+
+/**
+ * Part A: Implement A promise state machine
+ */
+
+// 3 states of promise
+const PENDING = 'pending'
+const FULFILLED = 'fulfilled'
+const REJECTED = 'rejected'
+
+
+// Promise constructor
 function PromiseZ(executor) {
-    let that = this; // 缓存当前promise实例对象
-    that.status = PENDING; // 初始状态
-    that.value = undefined; // fulfilled状态时 返回的信息
-    that.onFulfilledCallbacks = []; // 存储fulfilled状态对应的onFulfilled函数
-    that.onRejectedCallbacks = []; // 存储rejected状态对应的onRejected函数
+  // Initial state of promise
+  const promise = this
+  promise.status = PENDING
+  promise.value = undefined
+  promise.fulfilledCbs = []
+  promise.rejectedCbs = []
 
-    function finalize(status, value) {
-        queueMicrotask(() => {
-            // 调用resolve 回调对应onFulfilled函数
-            if (that.status === PENDING) {
-                // 只能由pedning状态 => fulfilled状态 (避免调用多次resolve reject)
-                that.status = status;
-                that.value = value;
-                const callBacksToRun =
-                    status === FULFILLED ?
-                    that.onFulfilledCallbacks :
-                    that.onRejectedCallbacks
-                callBacksToRun.forEach(cb => cb(that.value));
-            }
-        });
-    }
+  // Once finalized, promise will keep the value and status forever
+  function finalizeState(value, status) {
+    // Make sure all callbacks are run in async mode
+    queueMicroTask(() => {
+      // Status has changed, it means already finalized, so do nothing
+      if (promise.status !== PENDING) return
+      // set final value and status for promise
+      promise.value = value
+      promise.status = status
+      // run calls that are pending before promise resolved
+      const cbsToRun = status === FULFILLED ? promise.fulfilledCbs : promise.rejectedCbs
+      cbsToRun.forEach(cb => cb())
+      // clear pending callbacks
+      promise.fulfilledCbs = undefined
+      promise.rejectedCbs = undefined
+    })
+  }
 
-    function resolve(value) { // value成功态时接收的终值
-        finalize(FULFILLED, value)
-    }
+  function resolve(value) {
+    finalizeState(value, FULFILLED)
+  }
 
-    function reject(value) { // reason失败态时接收的拒因
-        finalize(REJECTED, value)
-    }
+  function reject(value) {
+    finalizeState(value, REJECTED)
+  }
 
-    try {
-        executor(resolve, reject);
-    } catch (e) {
-        reject(e);
-    }
+  try {
+    executor(resolve, reject)
+  } catch(err) {
+    reject(err)
+  }
 }
 
 function resolvePromise(promise2, x, resolve, reject) {
-    if (promise2 === x) {
-        return reject(new TypeError('Cannnot self resolve!'))
+  if (promise2 === x) {
+    return reject(new TypeError("Promise cannot self resolve"));
+  }
+
+  let called = false;
+  if (x != null && (typeof x === "object" || typeof x === "function")) {
+    try {
+      let then = x.then;
+      if (typeof then === "function") {
+        then.call(x, y => {
+            if (called) return;
+            called = true;
+            resolvePromise(promise2, y, resolve, reject);
+          }, r => {
+            if (called) return;
+            called = true;
+            reject(r);
+          }
+        );
+      } else {
+        resolve(x);
+      }
+    } catch (e) {
+      if (called) return;
+      called = true;
+      reject(e);
     }
-    let called = false
-    if (x !== null && (typeof x === 'object' || typeof x === 'function')) {
-        try {
-            let then = x.then
-            if (typeof then === 'function') {
-                then.call(x, y => {
-                    if (called) return
-                    called = true
-                    resolvePromise(promise2, y, resolve, reject)
-                }, r => {
-                    if (called) return
-                    called = true
-                    reject(r)
-                })
-            } else {
-                resolve(x)
-            }
-        } catch (err) {
-            if (called) return
-            called = true
-            reject(err)
-        }
-    } else {
-        resolve(x)
-    }
+  } else {
+    resolve(x);
+  }
 }
 
 PromiseZ.prototype.then = function(onFulfilled, onRejected) {
-    onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : value => value
-    onRejected = typeof onRejected === 'function' ? onRejected : value => { throw value }
-    const promise = this
-    const returnedPromise = new PromiseZ((resolve, reject) => {
-        const futureHandler = (handler) => {
-            return () => {
-                try {
-                    const val = handler(promise.value)
-                    resolvePromise(returnedPromise, val, resolve, reject)
-                } catch(err) {
-                    reject(err)
-                }
-            }
+  onFulfilled =
+    typeof onFulfilled === "function" ? onFulfilled : value => value
+  onRejected =
+    typeof onRejected === "function" ? onRejected : value => { throw value }
+  const promise = this
+  const returnedPromise = new PromiseZ((resolve, reject) => {
+    const futureHandler = handler => {
+      return () => {
+        try {
+          const val = handler(promise.value)
+          resolvePromise(returnedPromise, val, resolve, reject)
+        } catch (err) {
+          reject(err)
         }
-        if (promise.status === PENDING) {
-            promise.onFulfilledCallbacks.push(futureHandler(onFulfilled))
-            promise.onRejectedCallbacks.push(futureHandler(onRejected))
-        } else {
-            const handlerToRun = futureHandler(promise.status === FULFILLED ? onFulfilled : onRejected)
-            queueMicrotask(() => {
-                futureHandler(handlerToRun)()
-            })
-        }
-    })
-    return returnedPromise
+      };
+    };
+    if (promise.status === PENDING) {
+      promise.fulfilledCbs.push(futureHandler(onFulfilled))
+      promise.rejectedCbs.push(futureHandler(onRejected))
+    } else {
+      const handlerToRun = futureHandler(
+        promise.status === FULFILLED ? onFulfilled : onRejected
+      );
+      queueMicroTask(futureHandler(handlerToRun))
+    }
+  });
+  return returnedPromise
 };
 
 PromiseZ.all = function(promises) {
-    return new Promise((resolve, reject) => {
-        let done = gen(promises.length, resolve);
-        promises.forEach((promise, index) => {
-            promise.then((value) => {
-                done(index, value)
-            }, reject)
-        })
-    })
-}
-
-function gen(length, resolve) {
-    let count = 0;
-    let values = [];
-    return function(i, value) {
-        values[i] = value;
-        if (++count === length) {
-            console.log(values);
-            resolve(values);
+  return new Promise((resolve, reject) => {
+    const promiseNum = promises.length
+    const resolvedResult = []
+    let resolvedNum = 0
+    function resolveItem(idx) {
+      return (value) => {
+        resolvedResult[idx] = value
+        resolvedNum++
+        if (resolvedNum === promiseNum) {
+          resolve(resolvedResult)
         }
+      }
     }
+
+    promises.forEach((promise, idx) => {
+      promise.then(resolveItem(idx), reject)
+    })
+  })
 }
 
 PromiseZ.race = function(promises) {
-    return new Promise((resolve, reject) => {
-        promises.forEach((promise, index) => {
-           promise.then(resolve, reject);
-        });
+  return new Promise((resolve, reject) => {
+    promises.forEach((promise, index) => {
+      promise.then(resolve, reject);
     });
-}
+  });
+};
 
 PromiseZ.prototype.catch = function(onRejected) {
-    return this.then(null, onRejected);
-}
+  return this.then(null, onRejected);
+};
 
-PromiseZ.resolve = function (value) {
-    return new PromiseZ(resolve => {
-        resolve(value);
-    });
-}
+PromiseZ.resolve = function(value) {
+  return new PromiseZ(resolve => {
+    resolve(value);
+  });
+};
 
-PromiseZ.reject = function (reason) {
-    return new PromiseZ((resolve, reject) => {
-        reject(reason);
-    });
-}
+PromiseZ.reject = function(value) {
+  return new PromiseZ((resolve, reject) => {
+    reject(value);
+  });
+};
 
-PromiseZ.deferred = function() { // 延迟对象
-    let defer = {};
-    defer.promise = new PromiseZ((resolve, reject) => {
-        defer.resolve = resolve;
-        defer.reject = reject;
-    });
-    return defer;
-}
+PromiseZ.deferred = function() {
+  let defer = {};
+  defer.promise = new PromiseZ((resolve, reject) => {
+    defer.resolve = resolve;
+    defer.reject = reject;
+  });
+  return defer;
+};
 
 try {
-  module.exports = PromiseZ
-} catch (e) {
-}
+  module.exports = PromiseZ;
+} catch (e) {}
 
-const p = new Promise(resolve => {
-    const val = {
-        then: (resolve) => {resolve(5)}
-    }
-    resolve(val)
-})
-
-p.then(x => console.log(x))
+})()

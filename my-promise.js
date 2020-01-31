@@ -1,163 +1,168 @@
 (function() {
 
-// Find global variable and exit if Promise is defined on it
-var Global = (function() {
-  try { return self.self } catch (x) {}
-  try { return global.global } catch (x) {}
-  return null
+// Get environment global instance
+const Global = (function() {
+  try { return self.self } catch(err) {}
+  try { return global.global } catch(err) {}
+  throw new Error('Unsupported environment')
 })()
-if (!Global || typeof Global.PromiseZ === 'function') return
 
-// Define the async mechanism
-const runLater = (function() {
-  // For node
+// Prevent re-define Promise
+if (typeof Global.PromiseZ === 'function') return
+
+// Find a suitable way to arrange async task
+const asyncTask = (function() {
+  // If is node env, use nextTick for arrange async task
   if (typeof process !== 'undefined' && typeof process.version === 'string') {
     return typeof setImmediate === 'function' ?
-      function(fn) { setImmediate(fn) } :
-      function(fn) { process.nextTick(fn) }
+      function(cb) { setImmediate(cb) } :
+      function(cb) { process.nextTick(cb) }
   }
 
-  // Use MutationObserver if available for async task
-  if (typeof MutationObserver !== 'undefined' && MutationObserver) {
-    var div = document.createElement('div'), queuedFn = void 0
-    var observer = new MutationObserver(function() {
-      var fn = queuedFn
-      queuedFn = void 0
-      fn()
+  // If MutationObserver is avaible, use it
+  if (typeof MutationObserver === 'function') {
+    const div = document.createElement('div')
+    let task = void 0
+    const observer = new Global.MutationObserver(function() {
+      task()
     })
     observer.observe(div, { attributes: true })
-    return function(fn) {
-      if (queuedFn !== void 0) {
-        throw new Error('Only one function can be queued at a time')
-      }
-      queuedFn = fn
+    return function(cb) {
+      task = cb
       div.classList.toggle('x')
     }
   }
 
   // Fallback to setTimeout
-  return function(fn) { setTimeout(fn, 0) }
+  return function(cb) {
+    setTimeout(cb, 0)
+  }
 })()
 
-const queueMicroTask = function (task) {
-  runLater(task)
-}
 
+// Three status of Promise
+const PENDING = 'pending', FULFILLED = 'fulFilled', REJECTED = 'rejected'
 
-/**
- * Part A: Implement A promise state machine
- */
-
-// 3 states of promise
-const PENDING = 'pending'
-const FULFILLED = 'fulfilled'
-const REJECTED = 'rejected'
-
-
-// Promise constructor
+// Constructor of Promise
 function PromiseZ(executor) {
-  // Initial state of promise
+  // Initial state
   const promise = this
   promise.status = PENDING
   promise.value = undefined
   promise.fulfilledCbs = []
   promise.rejectedCbs = []
 
-  // Once finalized, promise will keep the value and status forever
+  // finalize the state of Promise
   function finalizeState(value, status) {
-    // Make sure all callbacks are run in async mode
-    queueMicroTask(() => {
-      // Status has changed, it means already finalized, so do nothing
+    asyncTask(() => {
       if (promise.status !== PENDING) return
-      // set final value and status for promise
-      promise.value = value
+      // Make sure state can only be set one time
       promise.status = status
-      // run calls that are pending before promise resolved
-      const cbsToRun = status === FULFILLED ? promise.fulfilledCbs : promise.rejectedCbs
-      cbsToRun.forEach(cb => cb(value))
+      promise.value = value
+      // Run callbacks that are queued before promise resolved
+      const cbsToRun =
+        status === FULFILLED ? promise.fulfilledCbs : promise.rejectedCbs
+      cbsToRun.forEach(cb => cb())
       // clear pending callbacks
       promise.fulfilledCbs = undefined
       promise.rejectedCbs = undefined
     })
   }
 
+  // resolver
   function resolve(value) {
     finalizeState(value, FULFILLED)
   }
 
+  // rejector
   function reject(value) {
     finalizeState(value, REJECTED)
   }
 
-  try {
-    executor(resolve, reject)
-  } catch(err) {
-    reject(err)
-  }
+  // run executor
+  try { executor(resolve, reject) } catch(e) { reject(e) }
 }
 
-function resolvePromise(promise2, x, resolve, reject) {
-  if (promise2 === x) {
-    return reject(new TypeError("Promise cannot self resolve"));
-  }
 
-  let called = false;
-  if (x != null && (typeof x === "object" || typeof x === "function")) {
+function resolveValue(val, promise, resolve, reject) {
+  if (val === promise) {
+    return reject(new TypeError('Promise cannot self-resolve'))
+  }
+  if (val != null && (typeof val === 'object' || typeof val === 'function')) {
+    let called = false
     try {
-      let then = x.then;
-      if (typeof then === "function") {
-        then.call(x, y => {
-            if (called) return;
-            called = true;
-            resolvePromise(promise2, y, resolve, reject);
-          }, r => {
-            if (called) return;
-            called = true;
-            reject(r);
-          }
-        );
+      const then = val.then
+      if (typeof then === 'function') {
+        then.call(val, value => {
+          if (called) return
+          called = true
+          resolveValue(value, promise, resolve, reject)
+        }, value => {
+          if (called) return
+          called = true
+          reject(value)
+        })
       } else {
-        resolve(x);
+        resolve(val)
       }
-    } catch (e) {
-      if (called) return;
-      called = true;
-      reject(e);
+    } catch(e) {
+      if (called) return
+      called = true
+      reject(e)
     }
   } else {
-    resolve(x);
+    resolve(val)
   }
 }
 
-PromiseZ.prototype.then = function(onFulfilled, onRejected) {
-  onFulfilled =
-    typeof onFulfilled === "function" ? onFulfilled : value => value
+PromiseZ.prototype.then = function(onFulFilled, onRejected) {
+  // set default value for fulFilled, rejected callbacks
+  onFulFilled =
+    typeof onFulFilled === 'function' ? onFulFilled : value => value
   onRejected =
-    typeof onRejected === "function" ? onRejected : value => { throw value }
+    typeof onRejected === 'function' ? onRejected : value => { throw value }
+
   const promise = this
+  // return a new Promise
   const returnedPromise = new PromiseZ((resolve, reject) => {
     const futureHandler = handler => {
       return () => {
         try {
           const val = handler(promise.value)
-          resolvePromise(returnedPromise, val, resolve, reject)
-        } catch (err) {
-          reject(err)
+          resolveValue(val, returnedPromise, resolve, reject)
+        } catch(e) {
+          reject(e)
         }
-      };
-    };
+      }
+    }
+
+    // When promise is still pending
+    // queue the callbacks
     if (promise.status === PENDING) {
-      promise.fulfilledCbs.push(futureHandler(onFulfilled))
+      promise.fulfilledCbs.push(futureHandler(onFulFilled))
       promise.rejectedCbs.push(futureHandler(onRejected))
     } else {
+      // When promise is fuilFilled or rejected
       const handlerToRun = futureHandler(
-        promise.status === FULFILLED ? onFulfilled : onRejected
-      );
-      queueMicroTask(futureHandler(handlerToRun))
+        promise.status === FULFILLED ? onFulFilled : onRejected
+      )
+      asyncTask(futureHandler(handlerToRun))
     }
-  });
+  })
   return returnedPromise
-};
+}
+
+PromiseZ.resolve = function(value) {
+  return new PromiseZ(resolve => {
+    resolve(value);
+  })
+}
+
+PromiseZ.reject = function(value) {
+  return new PromiseZ((resolve, reject) => {
+    reject(value)
+  })
+}
 
 PromiseZ.all = function(promises) {
   return new Promise((resolve, reject) => {
@@ -180,35 +185,16 @@ PromiseZ.all = function(promises) {
   })
 }
 
-const fakeThen = {
-  then(resolve, reject) {
-    resolve(5)
-    reject(10)
-  }
-}
-
 PromiseZ.race = function(promises) {
   return new Promise((resolve, reject) => {
     promises.forEach((promise, index) => {
-      promise.then(resolve, reject);
-    });
-  });
-};
+      promise.then(resolve, reject)
+    })
+  })
+}
 
 PromiseZ.prototype.catch = function(onRejected) {
   return this.then(null, onRejected);
-};
-
-PromiseZ.resolve = function(value) {
-  return new PromiseZ(resolve => {
-    resolve(value);
-  });
-};
-
-PromiseZ.reject = function(value) {
-  return new PromiseZ((resolve, reject) => {
-    reject(value);
-  });
 };
 
 PromiseZ.deferred = function() {
@@ -224,4 +210,5 @@ try {
   module.exports = PromiseZ;
 } catch (e) {}
 
-})()
+
+})() 
